@@ -36,42 +36,63 @@ function createWindow () {
   // Set up global keyboard tracking
   let currentWord = ''
   let currentSentence = ''
-  let pressedKeys = new Set()
+  let lastKeyTime = Date.now()
   
   const keyboard = new GlobalKeyboardListener()
   
-  keyboard.addListener(function (e, down) {
-    // Get the raw key name
-    const key = e.name
-    console.log(key)
+  keyboard.addListener(function (e) {
+    // Get the raw key name and state
+    const rawKey = e.name
+    const isPressed = e.state === 'DOWN'
+    const now = Date.now()
+    const delay = now - lastKeyTime
+    lastKeyTime = now
+
+    console.log(`Key: ${rawKey} ${isPressed ? 'PRESSED' : 'RELEASED'} (${delay}ms)`)
     
-    // Only handle key presses, not releases
-    if (!down) {
-      return
-    }
+    if (isPressed) {
+      // Handle backspace
+      if (rawKey === 'BACKSPACE') {
+        if (currentWord.length > 0) {
+          currentWord = currentWord.slice(0, -1)
+          currentSentence = currentSentence.slice(0, -1)
+          // Check if word is still 'test' after backspace
+          if (currentWord === 'test') {
+            mainWindow.webContents.send('word-found', currentWord)
+          }
+        }
+        return
+      }
 
-    // Handle backspace
-    if (key === 'BACKSPACE') {
-      if (currentWord.length > 0) {
-        currentWord = currentWord.slice(0, -1)
-        currentSentence = currentSentence.slice(0, -1)
+      // Handle space
+      if (rawKey === 'SPACE') {
+        currentWord = ''
+        currentSentence += ' '
+        return
+      }
+
+      // Skip special keys and mouse buttons
+      if (rawKey.startsWith('MOUSE') || 
+          rawKey === 'LEFT CTRL' || 
+          rawKey === 'LEFT SHIFT' || 
+          rawKey === 'LEFT ALT' || 
+          rawKey === 'RETURN') {
+        return
+      }
+
+      // Handle regular keys
+      if (rawKey.length === 1) {
+        const key = rawKey.toLowerCase()
+        currentWord += key
+        currentSentence += key
+        // Check if word is 'test' after each keystroke
+        if (currentWord === 'test') {
+          mainWindow.webContents.send('word-found', currentWord)
+        }
       }
     }
-    // Handle space
-    else if (key === 'SPACE') {
-      if (currentWord === 'test') {
-        mainWindow.webContents.send('word-found', currentWord)
-      }
-      currentWord = ''
-      currentSentence += ' '
-    }
-    // Handle all other keys
-    else {
-      currentWord += key
-      currentSentence += key
-    }
 
-    // Send update for every key
+    // Send update for every key press
     mainWindow.webContents.send('word-update', { currentWord, currentSentence })
   })
 
