@@ -17,6 +17,10 @@
   "author": "GitHub",
   "license": "CC0-1.0",
   "devDependencies": {
-    "electron": "^37.1.0"
+    "electron": "^37.1.0",
+    "electron-reloader": "^1.2.3"
+  },
+  "dependencies": {
+    "node-global-key-listener": "^0.3.0"
   }
 }

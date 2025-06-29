@@ -1,22 +1,85 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, screen } = require('electron')
+const { GlobalKeyboardListener } = require('node-global-key-listener')
+
+// Enable hot reloading in development
+try {
+  require('electron-reloader')(module, {
+    debug: true,
+    watchRenderer: true
+  });
+} catch (_) { console.log('Error loading electron-reloader'); }
 const path = require('node:path')
 
 function createWindow () {
-  // Create the browser window.
+  // Get screen dimensions
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width, height } = primaryDisplay.workAreaSize
+
+  // Create the browser window
   const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 400,
+    height: 200,
+    x: width - 420, // Position near the right edge
+    y: height - 220, // Position near the bottom
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js')
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    frame: false, // Remove window frame
+    transparent: true, // Make window transparent
+    alwaysOnTop: true, // Keep window on top
+    skipTaskbar: true, // Don't show in taskbar
+    movable: true // Allow window to be moved
+  })
+
+  // Set up global keyboard tracking
+  let currentWord = ''
+  let currentSentence = ''
+  let pressedKeys = new Set()
+  
+  const keyboard = new GlobalKeyboardListener()
+  
+  keyboard.addListener(function (e, down) {
+    // Get the raw key name
+    const key = e.name
+    console.log(key)
+    
+    // Only handle key presses, not releases
+    if (!down) {
+      return
     }
+
+    // Handle backspace
+    if (key === 'BACKSPACE') {
+      if (currentWord.length > 0) {
+        currentWord = currentWord.slice(0, -1)
+        currentSentence = currentSentence.slice(0, -1)
+      }
+    }
+    // Handle space
+    else if (key === 'SPACE') {
+      if (currentWord === 'test') {
+        mainWindow.webContents.send('word-found', currentWord)
+      }
+      currentWord = ''
+      currentSentence += ' '
+    }
+    // Handle all other keys
+    else {
+      currentWord += key
+      currentSentence += key
+    }
+
+    // Send update for every key
+    mainWindow.webContents.send('word-update', { currentWord, currentSentence })
   })
 
   // and load the index.html of the app.
   mainWindow.loadFile('index.html')
 
   // Open the DevTools.
-  // mainWindow.webContents.openDevTools()
+  mainWindow.webContents.openDevTools()
 }
 
 // This method will be called when Electron has finished
