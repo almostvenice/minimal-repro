@@ -53,8 +53,39 @@ container.style.padding = '10px';
 container.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
 container.style.color = 'white';
 container.style.fontFamily = 'Arial, sans-serif';
-container.style.cursor = 'move';
+container.style.cursor = 'default';
 document.body.appendChild(container);
+
+// Create input field
+const inputField = document.createElement('input');
+inputField.type = 'text';
+inputField.style.width = '100%';
+inputField.style.padding = '5px';
+inputField.style.marginBottom = '10px';
+inputField.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+inputField.style.border = 'none';
+inputField.style.borderRadius = '3px';
+inputField.style.color = 'black';
+container.appendChild(inputField);
+
+// Handle input changes
+inputField.addEventListener('input', (e) => {
+  const text = e.target.value;
+  ipcRenderer.send('input-update', { text });
+});
+
+// Handle key presses for suggestion selection
+inputField.addEventListener('keydown', (e) => {
+  if (e.key >= '1' && e.key <= '5') {
+    ipcRenderer.send('suggestion-selected', { number: parseInt(e.key) });
+    e.preventDefault(); // Prevent the number from being typed
+  }
+});
+
+// Focus input field when window is focused
+window.addEventListener('focus', () => {
+  inputField.focus();
+});
 
 // Create elements for displaying current word and sentence
 const wordDisplay = document.createElement('div');

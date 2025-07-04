@@ -21,6 +21,7 @@
     "electron-reloader": "^1.2.3"
   },
   "dependencies": {
+    "dgram": "^1.0.1",
     "node-global-key-listener": "^0.3.0"
   }
 }

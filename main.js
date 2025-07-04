@@ -1,6 +1,9 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, screen, ipcMain, clipboard } = require('electron')
+const { app, BrowserWindow, screen, ipcMain } = require('electron')
+const path = require('path')
+const fs = require('fs')
 const { GlobalKeyboardListener } = require('node-global-key-listener')
+// File-based communication with AHK
 
 // Enable hot reloading in development
 try {
@@ -9,7 +12,6 @@ try {
     watchRenderer: true
   });
 } catch (_) { console.log('Error loading electron-reloader'); }
-const path = require('node:path')
 
 // Global state
 let suggestionWindow = null
@@ -18,6 +20,16 @@ let currentWord = ''
 let currentSentence = ''
 let lastKeyTime = Date.now()
 let showingAutocomplete = false
+
+// Function to send key to AHK
+function sendKeyToAHK(key) {
+  try {
+    fs.writeFileSync('commands.txt', key);
+    console.log('Successfully sent key:', key);
+  } catch (err) {
+    console.error('Error sending command:', err);
+  }
+}
 
 // Create global keyboard listener
 const keyboard = new GlobalKeyboardListener()
@@ -35,43 +47,25 @@ function handleSuggestionSelection(number) {
   const index = number - 1
   if (index >= 0 && index < suggestions.length) {
     const completion = suggestions[index]
-    const remainingChars = completion.slice(currentWord.length) // Get the characters to add
+    console.log('Selected suggestion:', { number, completion })
     
-    // First backspace the current word
-    for (let i = 0; i < currentWord.length; i++) {
-      keyboard.sendKey({
-        name: 'BACKSPACE',
-        state: 'DOWN',
-        type: 'KEYBOARD',
-        rawKey: 'BACKSPACE'
-      })
-      keyboard.sendKey({
-        name: 'BACKSPACE',
-        state: 'UP',
-        type: 'KEYBOARD',
-        rawKey: 'BACKSPACE'
-      })
-    }
+    // Send backspace command for both the word and the number key
+    console.log('Backspacing current word and number:', currentWord, number)
+    sendKeyToAHK(`backspace:${currentWord.length + 1}`)
     
-    // Then type out the completion
-    for (const char of completion) {
-      keyboard.sendKey({
-        name: char.toUpperCase(),
-        state: 'DOWN',
-        type: 'KEYBOARD',
-        rawKey: char.toUpperCase()
-      })
-      keyboard.sendKey({
-        name: char.toUpperCase(),
-        state: 'UP',
-        type: 'KEYBOARD',
-        rawKey: char.toUpperCase()
-      })
-    }
+    // Wait for backspaces to complete
+    setTimeout(() => {
+      // Send the completion
+      console.log('Sending completion:', completion)
+      sendKeyToAHK(`text:${completion}`)
+    }, currentWord.length * 50 + 100)
     
     // Update our internal state
-    currentSentence = currentSentence.slice(0, -currentWord.length) + completion
+    const oldWordLength = currentWord.length + 1 // +1 for the number key
     currentWord = completion
+    currentSentence = currentSentence.slice(0, -oldWordLength) + completion
+    console.log('Updated state:', { currentWord, currentSentence })
+    
     showingAutocomplete = false
     suggestionWindow.hide()
     mainWindow.webContents.send('word-update', { currentWord, currentSentence })
@@ -79,18 +73,22 @@ function handleSuggestionSelection(number) {
 }
 
 function createSuggestionWindow() {
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width } = primaryDisplay.workAreaSize
+  
   suggestionWindow = new BrowserWindow({
     width: 200,
-    height: 150,
+    height: 300,
+    x: width - 220, // 20px from right edge
+    y: 10, // 10px from top
+    frame: false,
+    show: false,
+    alwaysOnTop: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
-    },
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    show: false
+    }
   })
 
   suggestionWindow.loadFile('suggestions.html')
@@ -105,8 +103,8 @@ function createWindow () {
   mainWindow = new BrowserWindow({
     width: 400,
     height: 200,
-    x: width - 420, // Position near the right edge
-    y: height - 220, // Position near the bottom
+    x: 10, // 10px from left edge
+    y: 10, // 10px from top
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -124,8 +122,37 @@ function createWindow () {
   // Create suggestion window
   createSuggestionWindow()
 
+  // Listen for suggestion selection
+  ipcMain.on('suggestion-selected', (event, { number }) => {
+    console.log('Suggestion selected:', number)
+    handleSuggestionSelection(number)
+  })
+
   // Set up global keyboard tracking
-  te
+  ipcMain.on('input-update', (event, { text }) => {
+    const words = text.split(/\s+/)
+    currentWord = words[words.length - 1] || ''
+    currentSentence = text
+
+    console.log('Input update:', { currentWord, currentSentence })
+
+    // Check if current word is 'test'
+    if (currentWord === 'test') {
+      console.log('Found test word, showing suggestions')
+      showingAutocomplete = true
+      suggestionWindow.webContents.send('show-suggestions', { suggestions })
+      suggestionWindow.show()
+    } else {
+      if (showingAutocomplete) {
+        console.log('Hiding suggestions')
+        showingAutocomplete = false
+        suggestionWindow.hide()
+      }
+    }
+    
+    mainWindow.webContents.send('word-update', { currentWord, currentSentence })
+  })
+
   // Listen for window movement
   ipcMain.on('move-window', (event, { deltaX, deltaY }) => {
     const pos = mainWindow.getPosition()
@@ -225,10 +252,66 @@ function createWindow () {
   mainWindow.webContents.openDevTools()
 }
 
+// Start the AHK script
+function startKeyHandler() {
+  const { spawn } = require('child_process')
+  const path = require('path')
+  
+  const ahkPath = path.join(__dirname, 'key_handler.ahk')
+  console.log('Starting AHK script:', ahkPath)
+  
+  // Try common AutoHotkey v2 installation paths
+  const possibleAhkPaths = [
+    'C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe',
+    'C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey32.exe',
+    'C:\\Program Files\\AutoHotkey\\AutoHotkey64.exe',
+    'C:\\Program Files\\AutoHotkey\\AutoHotkey32.exe'
+  ]
+  
+  let ahkExePath = null
+  for (const path of possibleAhkPaths) {
+    if (require('fs').existsSync(path)) {
+      ahkExePath = path
+      break
+    }
+  }
+  
+  if (!ahkExePath) {
+    console.error('Could not find AutoHotkey executable')
+    return
+  }
+  
+  console.log('Using AutoHotkey executable:', ahkExePath)
+  const ahkProcess = spawn(ahkExePath, [ahkPath])
+  
+  ahkProcess.stdout.on('data', (data) => {
+    console.log('AHK output:', data.toString())
+  })
+  
+  ahkProcess.stderr.on('data', (data) => {
+    console.error('AHK error:', data.toString())
+  })
+  
+  ahkProcess.on('error', (err) => {
+    console.error('Failed to start AHK script:', err)
+  })
+  
+  ahkProcess.on('exit', (code) => {
+    console.log('AHK script exited with code:', code)
+  })
+  
+  // Kill AHK script when app exits
+  app.on('before-quit', () => {
+    console.log('Killing AHK script')
+    ahkProcess.kill()
+  })
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  startKeyHandler()
   createWindow()
 
   app.on('activate', function () {
